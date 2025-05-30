@@ -1,6 +1,8 @@
 package dev.atick.compose.ui.dashboard
 
+import android.Manifest
 import android.os.Environment
+import androidx.annotation.RequiresPermission
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
@@ -321,11 +323,13 @@ class DashboardViewModel @Inject constructor(
     }
 
     // Bluetooth Management Functions
+    @RequiresPermission(Manifest.permission.BLUETOOTH_SCAN)
     fun scanForDevices() {
         Logger.d("Starting Bluetooth scan for devices")
         bluetoothManager.startScan()
     }
 
+    @RequiresPermission(allOf = [Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT])
     fun connectToDevice(device: BluetoothDevice) {
         Logger.d("Connecting to device: ${device.name}")
         bluetoothManager.connectToDevice(device)
@@ -405,7 +409,8 @@ class DashboardViewModel @Inject constructor(
     private suspend fun saveRecordingLocally() {
         withContext(Dispatchers.IO) {
             try {
-                val timestamp = SimpleDateFormat("yyyy_MM_dd_HH_mm_ss", Locale.getDefault()).format(Date())
+                val timestamp =
+                    SimpleDateFormat("yyyy_MM_dd_HH_mm_ss", Locale.getDefault()).format(Date())
                 val fileName = "ecg_recording_${timestamp}.csv"
 
                 val file = File(
@@ -419,7 +424,8 @@ class DashboardViewModel @Inject constructor(
 
                     // Write ECG data
                     recording.forEachIndexed { index, value ->
-                        val line = "${System.currentTimeMillis() + index},$value,${_uiState.value.selectedPatient?.id},${_uiState.value.selectedPatient?.name},${_uiState.value.heartRate}\n"
+                        val line =
+                            "${System.currentTimeMillis() + index},$value,${_uiState.value.selectedPatient?.id},${_uiState.value.selectedPatient?.name},${_uiState.value.heartRate}\n"
                         output.write(line.toByteArray())
                     }
                 }
@@ -436,10 +442,19 @@ class DashboardViewModel @Inject constructor(
     fun connectDoctor(doctorId: String) {
         viewModelScope.launch {
             try {
-                val request = ConnectDoctorRequest(doctorId = doctorId)
+                val selectedPatient = _uiState.value.selectedPatient
+                if (selectedPatient == null) {
+                    _connectDoctorStatus.postValue(Event("Please select a patient first"))
+                    return@launch
+                }
+
+                val request = ConnectDoctorRequest(
+                    patientId = selectedPatient.id,
+                    doctorId = doctorId
+                )
                 val response = cardiacZoneRepository.connectDoctor(request)
 
-                if (response?.isSuccessful == true) {
+                if (response != null) {
                     _connectDoctorStatus.postValue(Event("Successfully connected to doctor"))
                 } else {
                     _connectDoctorStatus.postValue(Event("Failed to connect to doctor"))
@@ -469,7 +484,7 @@ class DashboardViewModel @Inject constructor(
 
         val lineDataSet = LineDataSet(entries, "ECG")
 
-        // Detect R-peaks (simplified algorithm)
+        // Detect R-peaks (improved algorithm)
         val rPeaks = detectRPeaks(ecgData)
         val rPeakEntries = rPeaks.map { index ->
             Entry(index.toFloat(), ecgData[index].toFloat())
@@ -486,21 +501,55 @@ class DashboardViewModel @Inject constructor(
     }
 
     private fun detectRPeaks(ecgData: List<Int>): List<Int> {
-        val peaks = mutableListOf<Int>()
-        val threshold = ecgData.maxOrNull()?.times(0.6) ?: 0
+        if (ecgData.size < 10) return emptyList()
 
-        for (i in 1 until ecgData.size - 1) {
-            if (ecgData[i] > threshold &&
-                ecgData[i] > ecgData[i - 1] &&
-                ecgData[i] > ecgData[i + 1]) {
-                // Ensure minimum distance between peaks (avoid double detection)
-                if (peaks.isEmpty() || i - peaks.last() > 20) {
-                    peaks.add(i)
-                }
+        val peaks = mutableListOf<Int>()
+        val smoothedData = smoothEcgData(ecgData)
+
+        // Calculate adaptive threshold
+        val maxValue = smoothedData.maxOrNull() ?: 0.0
+        val meanValue = smoothedData.average()
+        val threshold = meanValue + (maxValue - meanValue) * 0.6
+
+        // Minimum distance between peaks (samples) - approximately 0.6 seconds at 100Hz
+        val minPeakDistance = 60
+
+        var lastPeakIndex = -minPeakDistance
+
+        for (i in 2 until smoothedData.size - 2) {
+            val current = smoothedData[i]
+
+            // Check if current point is a local maximum and above threshold
+            if (current > threshold &&
+                current > smoothedData[i - 1] &&
+                current > smoothedData[i + 1] &&
+                current > smoothedData[i - 2] &&
+                current > smoothedData[i + 2] &&
+                (i - lastPeakIndex) >= minPeakDistance
+            ) {
+                peaks.add(i)
+                lastPeakIndex = i
             }
         }
 
         return peaks
+    }
+
+    private fun smoothEcgData(ecgData: List<Int>): List<Double> {
+        // Apply simple moving average filter for noise reduction
+        val windowSize = 5
+        val smoothed = mutableListOf<Double>()
+
+        for (i in ecgData.indices) {
+            val start = maxOf(0, i - windowSize / 2)
+            val end = minOf(ecgData.size - 1, i + windowSize / 2)
+
+            val sum = (start..end).sumOf { ecgData[it].toDouble() }
+            val count = end - start + 1
+            smoothed.add(sum / count)
+        }
+
+        return smoothed
     }
 
     override fun onCleared() {
