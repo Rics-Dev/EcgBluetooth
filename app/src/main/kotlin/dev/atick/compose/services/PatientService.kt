@@ -221,6 +221,9 @@ class PatientService @Inject constructor(
     ): String? {
         return try {
             withContext(Dispatchers.IO) {
+                Logger.d("Saving ECG record for patient: $patientId")
+                Logger.d("ECG data size: ${ecgData.size}, Heart rate: $heartRate, Duration: $recordingDuration")
+
                 val recordData = mapOf(
                     "patientId" to patientId,
                     "ecgData" to ecgData,
@@ -230,6 +233,7 @@ class PatientService @Inject constructor(
                     "isAbnormal" to false // This would be determined by ML analysis
                 )
 
+                Logger.d("Creating document in Appwrite...")
                 val document = databases.createDocument(
                     databaseId = databaseId,
                     collectionId = ecgRecordsCollectionId,
@@ -237,13 +241,22 @@ class PatientService @Inject constructor(
                     data = recordData
                 )
 
+                Logger.d("Document created successfully with ID: ${document.id}")
+
                 // Update patient's last recorded time
                 updatePatientLastRecorded(patientId)
 
                 document.id
             }
         } catch (e: AppwriteException) {
-            Logger.e("Failed to save ECG record: ${e.message}")
+            Logger.e("Appwrite error saving ECG record: ${e.message}")
+            Logger.e("Appwrite error code: ${e.code}")
+            Logger.e("Appwrite error type: ${e.type}")
+            _error.value = e
+            null
+        } catch (e: Exception) {
+            Logger.e("Unexpected error saving ECG record: ${e.message}")
+            e.printStackTrace()
             _error.value = e
             null
         }

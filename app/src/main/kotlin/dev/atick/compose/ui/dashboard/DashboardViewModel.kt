@@ -357,33 +357,66 @@ class DashboardViewModel @Inject constructor(
     }
 
     private fun saveRecording() {
-        val selectedPatient = _uiState.value.selectedPatient ?: return
+        val selectedPatient = _uiState.value.selectedPatient
+        if (selectedPatient == null) {
+            Logger.e("No patient selected for saving ECG recording")
+            _patientAddedEvent.postValue(Event("No patient selected"))
+            return
+        }
+
+        if (recording.isEmpty()) {
+            Logger.e("No ECG data to save")
+            _patientAddedEvent.postValue(Event("No ECG data recorded"))
+            return
+        }
+
         val recordingDuration = System.currentTimeMillis() - recordingStartTime
+        Logger.d("Saving ECG recording - Patient: ${selectedPatient.name}, Duration: ${recordingDuration}ms, Data points: ${recording.size}")
 
         viewModelScope.launch {
             try {
-                // Save to Appwrite if possible
-                if (doctorId != "-1" && doctorId.isNotEmpty() && !selectedPatient.id.startsWith("demo_")) {
+                if (doctorId.isNotEmpty() && doctorId != "-1" && !selectedPatient.id.startsWith("demo_")) {
+                    Logger.d("Attempting to save ECG record to Appwrite for patient: ${selectedPatient.id}")
+
                     val recordId = patientService.saveEcgRecord(
                         patientId = selectedPatient.id,
-                        ecgData = recording,
+                        ecgData = recording.toList(), // Convert to immutable list
                         heartRate = _uiState.value.heartRate,
                         recordingDuration = recordingDuration
                     )
 
                     if (recordId != null) {
+                        Logger.d("ECG record saved successfully to Appwrite with ID: $recordId")
                         _patientAddedEvent.postValue(Event("ECG recording saved successfully"))
+
                         // Update patient's last recorded time
-                        updatePatient(selectedPatient.copy(lastRecorded = System.currentTimeMillis()))
+                        val updatedPatient = selectedPatient.copy(lastRecorded = System.currentTimeMillis())
+                        updatePatient(updatedPatient)
+
+                        return@launch
                     } else {
-                        saveRecordingLocally()
+                        Logger.e("Failed to save ECG record to Appwrite - recordId is null")
+                        _patientAddedEvent.postValue(Event("Failed to save ECG recording to cloud"))
                     }
                 } else {
-                    saveRecordingLocally()
+                    Logger.w("Cannot save to Appwrite - DoctorId: '$doctorId', PatientId: '${selectedPatient.id}'")
+                    _patientAddedEvent.postValue(Event("Cannot save to cloud - invalid session"))
                 }
-            } catch (e: Exception) {
-                Logger.e("Failed to save ECG recording: ${e.message}")
+
+                Logger.d("Falling back to local storage")
                 saveRecordingLocally()
+
+            } catch (e: Exception) {
+                Logger.e("Exception while saving ECG recording: ${e.message}")
+                e.printStackTrace()
+                _patientAddedEvent.postValue(Event("Error saving ECG: ${e.message}"))
+
+                try {
+                    saveRecordingLocally()
+                } catch (localException: Exception) {
+                    Logger.e("Failed to save locally as well: ${localException.message}")
+                    _patientAddedEvent.postValue(Event("Failed to save ECG recording"))
+                }
             }
         }
     }
