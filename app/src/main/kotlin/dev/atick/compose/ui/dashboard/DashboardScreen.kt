@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.AlertDialog
 import androidx.compose.material.Button
 import androidx.compose.material.Card
+import androidx.compose.material.CircularProgressIndicator
 import androidx.compose.material.Divider
 import androidx.compose.material.FloatingActionButton
 import androidx.compose.material.Icon
@@ -112,6 +113,107 @@ fun DashboardScreen(
         }
     }
 
+    // Bluetooth Device Selection Dialog
+    if (showBluetoothDialog) {
+        AlertDialog(
+            onDismissRequest = { showBluetoothDialog = false },
+            title = { Text("Select ECG Device") },
+            text = {
+                Column {
+                    if (uiState.availableBluetoothDevices.isEmpty()) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                            Spacer(modifier = Modifier.padding(8.dp))
+                            Text("Scanning for devices...")
+                        }
+                    } else {
+                        LazyColumn {
+                            items(uiState.availableBluetoothDevices) { device ->
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                        .clickable {
+                                            viewModel.connectToDevice(device)
+                                            showBluetoothDialog = false
+                                        },
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(16.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Bluetooth,
+                                            contentDescription = "Bluetooth Device"
+                                        )
+                                        Spacer(modifier = Modifier.padding(8.dp))
+                                        Column {
+                                            Text(
+                                                text = device.name ?: "Unknown Device",
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                            Text(
+                                                text = device.address,
+                                                fontSize = 12.sp,
+                                                color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f)
+                                            )
+                                            if (device.rssi != -100) {
+                                                Text(
+                                                    text = "Signal: ${device.rssi} dBm",
+                                                    fontSize = 10.sp,
+                                                    color = MaterialTheme.colors.onSurface.copy(alpha = 0.5f)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showBluetoothDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Add Patient Dialog
+    if (showAddPatientDialog) {
+        PatientAddDialog(
+            onDismiss = { showAddPatientDialog = false },
+            onAddPatient = { patient ->
+                viewModel.addPatient(patient)
+                showAddPatientDialog = false
+            }
+        )
+    }
+
+    // Audio Recording Dialog
+    if (showRecordingDialog) {
+        AlertDialog(
+            onDismissRequest = { showRecordingDialog = false },
+            title = { Text("Recording Audio") },
+            text = {
+                AudioRecordDialog { audioFile ->
+                    Logger.d("Audio recording completed: ${audioFile.absolutePath}")
+                    showRecordingDialog = false
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showRecordingDialog = false }) {
+                    Text("Stop Recording")
+                }
+            }
+        )
+    }
+
     return Scaffold(
         modifier = Modifier
             .fillMaxSize()
@@ -138,107 +240,281 @@ fun DashboardScreen(
                 Icon(imageVector = Icons.Default.Add, contentDescription = "Add Patient")
             }
         }
-    ) {
+    ) { paddingValues ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(it)
+                .padding(paddingValues)
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
                 Spacer(modifier = Modifier.height(16.dp))
 
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    // Doctor Info Card
-                    DoctorInfoCard(
-                        Modifier.fillMaxWidth(),
-                        doctorName = uiState.doctorName,
-                        doctorEmail = uiState.doctorEmail
-                    )
+                // Doctor Info Card
+                DoctorInfoCard(
+                    Modifier.fillMaxWidth(),
+                    doctorName = uiState.doctorName,
+                    doctorEmail = uiState.doctorEmail
+                )
+            }
 
-                    // Bluetooth connection status and device selection
+            item {
+                // Bluetooth connection status and device selection
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    backgroundColor = MaterialTheme.colors.surface
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "ECG Device",
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+
+                            Icon(
+                                imageVector = if (uiState.isConnectedToDevice)
+                                    Icons.Default.BluetoothConnected
+                                else
+                                    Icons.Default.BluetoothDisabled,
+                                contentDescription = "Bluetooth Status",
+                                tint = if (uiState.isConnectedToDevice)
+                                    Color.Green
+                                else
+                                    MaterialTheme.colors.onSurface.copy(alpha = 0.6f)
+                            )
+                        }
+
+                        Button(
+                            onClick = {
+                                if (!uiState.isConnectedToDevice) {
+                                    showBluetoothDialog = true
+                                    viewModel.scanForDevices()
+                                } else {
+                                    viewModel.disconnectDevice()
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                text = if (uiState.isConnectedToDevice)
+                                    "Disconnect"
+                                else
+                                    "Connect to Device"
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Selected Patient Card (when a patient is selected)
+            uiState.selectedPatient?.let { patient ->
+                item {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
-                        backgroundColor = MaterialTheme.colors.surface
+                        backgroundColor = MaterialTheme.colors.primary
                     ) {
                         Column(
                             modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
+                            Text(
+                                text = "Selected Patient",
+                                fontSize = 16.sp,
+                                color = MaterialTheme.colors.onPrimary
+                            )
+                            Text(
+                                text = patient.name,
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colors.onPrimary
+                            )
+                            Text(
+                                text = "${patient.age} years old • ${patient.gender}",
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colors.onPrimary.copy(alpha = 0.8f)
+                            )
+                            if (patient.medicalHistory.isNotEmpty()) {
                                 Text(
-                                    text = "ECG Device",
-                                    fontSize = 20.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-
-                                Icon(
-                                    imageVector = if (uiState.isConnectedToDevice)
-                                        Icons.Default.BluetoothConnected
-                                    else
-                                        Icons.Default.BluetoothDisabled,
-                                    contentDescription = "Bluetooth Status",
-                                    tint = if (uiState.isConnectedToDevice)
-                                        Color.Green
-                                    else
-                                        MaterialTheme.colors.onSurface.copy(alpha = 0.6f)
-                                )
-                            }
-
-                            Button(
-                                onClick = {
-                                    if (!uiState.isConnectedToDevice) {
-                                        showBluetoothDialog = true
-                                        viewModel.scanForDevices()
-                                    } else {
-                                        viewModel.disconnectDevice()
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Text(
-                                    text = if (uiState.isConnectedToDevice)
-                                        "Disconnect"
-                                    else
-                                        "Connect to Device"
+                                    text = "Medical History: ${patient.medicalHistory}",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colors.onPrimary.copy(alpha = 0.7f)
                                 )
                             }
                         }
                     }
+                }
+            }
 
-                    // Selected Patient Card (when a patient is selected)
-                    uiState.selectedPatient?.let { patient ->
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(16.dp),
-                            backgroundColor = MaterialTheme.colors.primary
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Text(
-                                    text = "Selected Patient",
-                                    fontSize = 16.sp,
-                                    color = MaterialTheme.colors.onPrimary
-                                )
-                                Text(
-                                    text = patient.name,
-                                    fontSize = 20.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colors.onPrimary
-                                )
-                                Text(
-                                    text = "${patient.age
+            // Heart Rate Card
+            item {
+                HeartRateCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    heartRate = uiState.heartRate
+                )
+            }
 
+            // ECG Monitoring Card
+            item {
+                EcgCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    title = "Live ECG",
+                    ecgPlotData = uiState.ecgPlotData,
+                    recordingState = uiState.recordingState,
+                    onRecordClick = {
+                        when (uiState.recordingState) {
+                            RecordingState.NotRecording -> {
+                                if (uiState.selectedPatient != null) {
+                                    viewModel.startRecording()
+                                } else {
+                                    Toast.makeText(
+                                        context,
+                                        "Please select a patient first",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            }
+                            RecordingState.Recording -> viewModel.stopRecording()
+                            RecordingState.PatientRecording -> viewModel.stopRecording()
+                            RecordingState.ReadyToRecord -> viewModel.startRecording()
+                        }
+                    }
+                )
+            }
 
+            // Audio Recording Button
+            item {
+                Button(
+                    onClick = { showRecordingDialog = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Mic,
+                        contentDescription = "Record Audio"
+                    )
+                    Spacer(modifier = Modifier.padding(8.dp))
+                    Text("Record Audio Notes")
+                }
+            }
+
+            // Abnormal ECG Header Card
+            if (uiState.abnormalEcgPlotData.isNotEmpty()) {
+                item {
+                    AbnormalEcgHeaderCard(modifier = Modifier.fillMaxWidth())
+                }
+
+                // Display abnormal ECG data
+                items(uiState.abnormalEcgPlotData) { abnormalEcg ->
+                    EcgCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        title = "Abnormal ECG - ${abnormalEcg.getTimestamp()}",
+                        ecgPlotData = abnormalEcg
+                    )
+                }
+            }
+
+            // Patient List
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    backgroundColor = MaterialTheme.colors.surface
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Text(
+                            text = "Patients",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(bottom = 16.dp)
+                        )
+
+                        if (uiState.patients.isEmpty()) {
+                            Text(
+                                text = "No patients added yet",
+                                color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f),
+                                modifier = Modifier.padding(vertical = 16.dp)
+                            )
+                        } else {
+                            uiState.patients.forEach { patient ->
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                        .clickable { viewModel.selectPatient(patient) }
+                                        .let { modifier ->
+                                            if (uiState.selectedPatient?.id == patient.id) {
+                                                modifier.border(
+                                                    2.dp,
+                                                    MaterialTheme.colors.primary,
+                                                    RoundedCornerShape(8.dp)
+                                                )
+                                            } else {
+                                                modifier
+                                            }
+                                        },
+                                    shape = RoundedCornerShape(8.dp),
+                                    backgroundColor = if (uiState.selectedPatient?.id == patient.id)
+                                        MaterialTheme.colors.primary.copy(alpha = 0.1f)
+                                    else
+                                        MaterialTheme.colors.background
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(16.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(40.dp)
+                                                .clip(CircleShape)
+                                                .background(MaterialTheme.colors.primary),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Person,
+                                                contentDescription = "Patient",
+                                                tint = MaterialTheme.colors.onPrimary,
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.padding(8.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = patient.name,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                            Text(
+                                                text = "${patient.age} years old • ${patient.gender}",
+                                                fontSize = 12.sp,
+                                                color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(80.dp)) // Space for FAB
+            }
+        }
+    }
+}
