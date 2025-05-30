@@ -181,91 +181,73 @@ class DashboardViewModel @Inject constructor(
     }
 
     private fun loadPatients() {
-        if (doctorId == "-1" || doctorId.isEmpty()) {
-            Logger.w("No valid doctor ID, loading demo patients")
-            loadDummyPatients()
-            return
-        }
-
         viewModelScope.launch {
             try {
-                val patients = patientService.getPatientsByDoctor(doctorId)
-                if (patients.isEmpty()) {
-                    Logger.d("No patients found, loading demo patients")
-                    loadDummyPatients()
+                // Wait for valid doctor ID from preferences
+                userPreferences.getUserId().collect { id ->
+                    if (id.isNotEmpty() && id != "-1") {
+                        doctorId = id
+                        Logger.d("Loading patients for doctor: $doctorId")
+
+                        val patients = patientService.getPatientsByDoctor(doctorId)
+
+                        if (patients.isNotEmpty()) {
+                            Logger.d("Loaded ${patients.size} patients from Appwrite")
+                            // Patients are automatically updated via the StateFlow in PatientService
+                        } else {
+                            Logger.d("No patients found in Appwrite for doctor: $doctorId")
+                            // Don't load dummy patients - keep empty state
+                            _uiState.update { state ->
+                                state.copy(patients = emptyList())
+                            }
+                        }
+                    } else {
+                        Logger.w("Invalid doctor ID: $id")
+                        // Handle authentication issue
+                        _patientAddedEvent.postValue(Event("Please log in again"))
+                    }
                 }
             } catch (e: Exception) {
                 Logger.e("Failed to load patients: ${e.message}")
-                loadDummyPatients()
+                _patientAddedEvent.postValue(Event("Failed to load patients: ${e.message}"))
             }
-        }
-    }
-
-    private fun loadDummyPatients() {
-        val dummyPatients = listOf(
-            Patient(
-                id = "demo_1",
-                name = "Alice Smith",
-                age = 45,
-                gender = "Female",
-                medicalHistory = "Hypertension, Diabetes Type 2",
-                lastRecorded = System.currentTimeMillis() - 86400000 // 1 day ago
-            ),
-            Patient(
-                id = "demo_2",
-                name = "Bob Johnson",
-                age = 62,
-                gender = "Male",
-                medicalHistory = "Previous MI (2019), High cholesterol, Smoker",
-                lastRecorded = System.currentTimeMillis() - 172800000 // 2 days ago
-            ),
-            Patient(
-                id = "demo_3",
-                name = "Carol Wilson",
-                age = 38,
-                gender = "Female",
-                medicalHistory = "Atrial fibrillation, Anxiety disorder",
-                lastRecorded = System.currentTimeMillis() - 259200000 // 3 days ago
-            ),
-            Patient(
-                id = "demo_4",
-                name = "David Brown",
-                age = 55,
-                gender = "Male",
-                medicalHistory = "Hypertension, Sleep apnea",
-                lastRecorded = System.currentTimeMillis() - 345600000 // 4 days ago
-            )
-        )
-        _uiState.update { state ->
-            state.copy(patients = dummyPatients)
         }
     }
 
     fun addPatient(patient: Patient) {
         viewModelScope.launch {
             try {
-                if (doctorId != "-1" && doctorId.isNotEmpty()) {
+                if (doctorId.isNotEmpty() && doctorId != "-1") {
                     // Save to Appwrite
+                    Logger.d("Adding patient to Appwrite: ${patient.name} for doctor: $doctorId")
                     val savedPatient = patientService.createPatient(patient, doctorId)
                     if (savedPatient != null) {
                         _patientAddedEvent.postValue(Event("Patient ${patient.name} added successfully"))
-                        Logger.d("Patient added: ${patient.name}")
+                        Logger.d("Patient added to Appwrite: ${patient.name}")
+
+                        // Refresh the patient list
+                        loadPatientsFromAppwrite()
                     } else {
-                        _patientAddedEvent.postValue(Event("Failed to add patient"))
+                        _patientAddedEvent.postValue(Event("Failed to add patient to database"))
                     }
                 } else {
-                    // Add to local demo list
-                    _uiState.update { state ->
-                        state.copy(
-                            patients = state.patients + patient
-                        )
-                    }
-                    _patientAddedEvent.postValue(Event("Patient ${patient.name} added locally"))
+                    _patientAddedEvent.postValue(Event("Please log in to add patients"))
+                    Logger.e("Cannot add patient: Invalid doctor ID")
                 }
             } catch (e: Exception) {
                 Logger.e("Failed to add patient: ${e.message}")
                 _patientAddedEvent.postValue(Event("Failed to add patient: ${e.message}"))
             }
+        }
+    }
+
+    // Add a specific method to load from Appwrite
+    private suspend fun loadPatientsFromAppwrite() {
+        try {
+            val patients = patientService.getPatientsByDoctor(doctorId)
+            Logger.d("Refreshed patients from Appwrite: ${patients.size} patients")
+        } catch (e: Exception) {
+            Logger.e("Failed to refresh patients: ${e.message}")
         }
     }
 
@@ -550,6 +532,21 @@ class DashboardViewModel @Inject constructor(
         }
 
         return smoothed
+    }
+
+    // Add this method to DashboardViewModel
+    fun refreshPatients() {
+        viewModelScope.launch {
+            try {
+                if (doctorId.isNotEmpty() && doctorId != "-1") {
+                    Logger.d("Refreshing patients for doctor: $doctorId")
+                    patientService.getPatientsByDoctor(doctorId)
+                }
+            } catch (e: Exception) {
+                Logger.e("Failed to refresh patients: ${e.message}")
+                _patientAddedEvent.postValue(Event("Failed to refresh patients"))
+            }
+        }
     }
 
     override fun onCleared() {

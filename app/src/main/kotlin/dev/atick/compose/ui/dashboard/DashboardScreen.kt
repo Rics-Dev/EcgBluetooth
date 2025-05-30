@@ -1,9 +1,9 @@
 package dev.atick.compose.ui.dashboard
 
+import android.annotation.SuppressLint
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,25 +21,29 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.AlertDialog
-import androidx.compose.material.Button
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material.Card
-import androidx.compose.material.CircularProgressIndicator
-import androidx.compose.material.Divider
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.DropdownMenuItem
 import androidx.compose.material.FloatingActionButton
 import androidx.compose.material.Icon
+import androidx.compose.material.IconButton
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Scaffold
-import androidx.compose.material.Text
+import androidx.compose.material3.Text
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material.TextButton
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.BluetoothConnected
 import androidx.compose.material.icons.filled.BluetoothDisabled
-import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.rememberScaffoldState
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -53,24 +57,25 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.common.InputImage
-import com.orhanobut.logger.Logger
 import dev.atick.compose.ui.common.components.TopBar
 import dev.atick.compose.ui.dashboard.components.AbnormalEcgHeaderCard
-import dev.atick.compose.ui.dashboard.components.AudioRecordDialog
 import dev.atick.compose.ui.dashboard.components.DoctorInfoCard
 import dev.atick.compose.ui.dashboard.components.EcgCard
 import dev.atick.compose.ui.dashboard.components.HeartRateCard
 import dev.atick.compose.ui.dashboard.components.PatientAddDialog
-import dev.atick.compose.ui.dashboard.data.BluetoothDevice
+import dev.atick.compose.ui.dashboard.components.PatientEditDialog
 import dev.atick.compose.ui.dashboard.data.Patient
 import dev.atick.compose.ui.dashboard.data.RecordingState
 import kotlinx.coroutines.launch
 
+@SuppressLint("MissingPermission")
 @Composable
 fun DashboardScreen(
     onExitClick: () -> Unit,
@@ -83,9 +88,10 @@ fun DashboardScreen(
     val coroutineScope = rememberCoroutineScope()
     val scanner = remember { BarcodeScanning.getClient() }
 
-    var showRecordingDialog by remember { mutableStateOf(false) }
     var showBluetoothDialog by remember { mutableStateOf(false) }
     var showAddPatientDialog by remember { mutableStateOf(false) }
+    var showEditPatientDialog by remember { mutableStateOf(false) }
+    var patientToEdit by remember { mutableStateOf<Patient?>(null) }
 
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicturePreview()
@@ -195,21 +201,18 @@ fun DashboardScreen(
         )
     }
 
-    // Audio Recording Dialog
-    if (showRecordingDialog) {
-        AlertDialog(
-            onDismissRequest = { showRecordingDialog = false },
-            title = { Text("Recording Audio") },
-            text = {
-                AudioRecordDialog { audioFile ->
-                    Logger.d("Audio recording completed: ${audioFile.absolutePath}")
-                    showRecordingDialog = false
-                }
+    // Edit Patient Dialog
+    patientToEdit?.let { patient ->
+        PatientEditDialog(
+            patient = patient,
+            onDismiss = {
+                patientToEdit = null
+                showEditPatientDialog = false
             },
-            confirmButton = {
-                TextButton(onClick = { showRecordingDialog = false }) {
-                    Text("Stop Recording")
-                }
+            onSavePatient = { updatedPatient ->
+                viewModel.updatePatient(updatedPatient)
+                patientToEdit = null
+                showEditPatientDialog = false
             }
         )
     }
@@ -234,10 +237,25 @@ fun DashboardScreen(
         },
         floatingActionButton = {
             FloatingActionButton(
-                modifier = Modifier.size(64.dp),
-                onClick = { showAddPatientDialog = true }
+                modifier = Modifier.padding(16.dp),
+                onClick = { showAddPatientDialog = true },
+                shape = RoundedCornerShape(16.dp)
             ) {
-                Icon(imageVector = Icons.Default.Add, contentDescription = "Add Patient")
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Add Patient"
+                    )
+                    Text(text = "Add Patient",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colors.onPrimary
+                    )
+                }
             }
         }
     ) { paddingValues ->
@@ -264,10 +282,11 @@ fun DashboardScreen(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
-                    backgroundColor = MaterialTheme.colors.surface
+                    backgroundColor = MaterialTheme.colors.surface,
+                    elevation = 4.dp
                 ) {
                     Column(
-                        modifier = Modifier.padding(16.dp),
+                        modifier = Modifier.padding(20.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         Row(
@@ -275,25 +294,54 @@ fun DashboardScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text(
-                                text = "ECG Device",
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Medium
-                            )
+                            Column {
+                                Text(
+                                    text = "ECG Device",
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colors.onSurface
+                                )
+                                Text(
+                                    text = if (uiState.isConnectedToDevice)
+                                        "Connected and ready"
+                                    else
+                                        "Not connected",
+                                    fontSize = 14.sp,
+                                    color = if (uiState.isConnectedToDevice)
+                                        Color.Green
+                                    else
+                                        MaterialTheme.colors.onSurface.copy(alpha = 0.6f)
+                                )
+                            }
 
-                            Icon(
-                                imageVector = if (uiState.isConnectedToDevice)
-                                    Icons.Default.BluetoothConnected
-                                else
-                                    Icons.Default.BluetoothDisabled,
-                                contentDescription = "Bluetooth Status",
-                                tint = if (uiState.isConnectedToDevice)
-                                    Color.Green
-                                else
-                                    MaterialTheme.colors.onSurface.copy(alpha = 0.6f)
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (uiState.isConnectedToDevice)
+                                            Color.Green.copy(alpha = 0.1f)
+                                        else
+                                            MaterialTheme.colors.onSurface.copy(alpha = 0.1f)
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (uiState.isConnectedToDevice)
+                                        Icons.Default.BluetoothConnected
+                                    else
+                                        Icons.Default.BluetoothDisabled,
+                                    contentDescription = "Bluetooth Status",
+                                    tint = if (uiState.isConnectedToDevice)
+                                        Color.Green
+                                    else
+                                        MaterialTheme.colors.onSurface.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
                         }
 
+                        // Enhanced Connect/Disconnect Button
                         Button(
                             onClick = {
                                 if (!uiState.isConnectedToDevice) {
@@ -303,15 +351,78 @@ fun DashboardScreen(
                                     viewModel.disconnectDevice()
                                 }
                             },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text(
-                                text = if (uiState.isConnectedToDevice)
-                                    "Disconnect"
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(56.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                containerColor = if (uiState.isConnectedToDevice)
+                                    MaterialTheme.colors.error
                                 else
-                                    "Connect to Device"
+                                    MaterialTheme.colors.primary,
+                                contentColor = if (uiState.isConnectedToDevice)
+                                    MaterialTheme.colors.onError
+                                else
+                                    MaterialTheme.colors.onPrimary
+                            ),
+                            elevation = androidx.compose.material3.ButtonDefaults.buttonElevation(
+                                defaultElevation = 2.dp,
+                                pressedElevation = 8.dp
                             )
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (uiState.isConnectedToDevice)
+                                        Icons.Default.BluetoothDisabled
+                                    else
+                                        Icons.Default.Bluetooth,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Text(
+                                    text = if (uiState.isConnectedToDevice)
+                                        "Disconnect Device"
+                                    else
+                                        "Connect to ECG Device",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = if (uiState.isConnectedToDevice)
+                                        MaterialTheme.colors.onError
+                                    else
+                                        MaterialTheme.colors.onPrimary
+                                )
+                            }
+                        }
+
+                        // Connection Status Indicator (optional additional info)
+                        if (uiState.isConnectedToDevice) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(
+                                        Color.Green.copy(alpha = 0.1f),
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.Green)
+                                )
+                                Text(
+                                    text = "Device connected and transmitting data",
+                                    fontSize = 12.sp,
+                                    color = Color.Green.copy(alpha = 0.8f),
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                         }
                     }
                 }
@@ -393,24 +504,6 @@ fun DashboardScreen(
                 )
             }
 
-            // Audio Recording Button
-            item {
-                Button(
-                    onClick = { showRecordingDialog = true },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Mic,
-                        contentDescription = "Record Audio"
-                    )
-                    Spacer(modifier = Modifier.padding(8.dp))
-                    Text("Record Audio Notes")
-                }
-            }
-
             // Abnormal ECG Header Card
             if (uiState.abnormalEcgPlotData.isNotEmpty()) {
                 item {
@@ -427,7 +520,7 @@ fun DashboardScreen(
                 }
             }
 
-            // Patient List
+// Patient List
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -437,72 +530,167 @@ fun DashboardScreen(
                     Column(
                         modifier = Modifier.padding(16.dp)
                     ) {
-                        Text(
-                            text = "Patients",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.padding(bottom = 16.dp)
-                        )
-
-                        if (uiState.patients.isEmpty()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Text(
-                                text = "No patients added yet",
-                                color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f),
-                                modifier = Modifier.padding(vertical = 16.dp)
+                                text = "Patients",
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Medium
                             )
-                        } else {
-                            uiState.patients.forEach { patient ->
-                                Card(
+
+                            // Add refresh button
+                            IconButton(
+                                onClick = {
+                                    viewModel.refreshPatients()
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Refresh Patients",
+                                    tint = MaterialTheme.colors.primary
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        when {
+                            uiState.patients.isEmpty() -> {
+                                Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(vertical = 4.dp)
-                                        .clickable { viewModel.selectPatient(patient) }
-                                        .let { modifier ->
-                                            if (uiState.selectedPatient?.id == patient.id) {
-                                                modifier.border(
-                                                    2.dp,
-                                                    MaterialTheme.colors.primary,
-                                                    RoundedCornerShape(8.dp)
-                                                )
-                                            } else {
-                                                modifier
-                                            }
-                                        },
-                                    shape = RoundedCornerShape(8.dp),
-                                    backgroundColor = if (uiState.selectedPatient?.id == patient.id)
-                                        MaterialTheme.colors.primary.copy(alpha = 0.1f)
-                                    else
-                                        MaterialTheme.colors.background
+                                        .padding(vertical = 32.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
-                                    Row(
-                                        modifier = Modifier.padding(16.dp),
-                                        verticalAlignment = Alignment.CenterVertically
+                                    Icon(
+                                        imageVector = Icons.Default.Person,
+                                        contentDescription = "No Patients",
+                                        modifier = Modifier.size(48.dp),
+                                        tint = MaterialTheme.colors.onSurface.copy(alpha = 0.3f)
+                                    )
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Text(
+                                        text = "No patients added yet",
+                                        color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f),
+                                        textAlign = TextAlign.Center
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "Tap the + button to add your first patient",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colors.onSurface.copy(alpha = 0.4f),
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            }
+                            else -> {
+                                uiState.patients.forEach { patient ->
+                                    Card(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp)
+                                            .clickable { viewModel.selectPatient(patient) }
+                                            .let { modifier ->
+                                                if (uiState.selectedPatient?.id == patient.id) {
+                                                    modifier.border(
+                                                        2.dp,
+                                                        MaterialTheme.colors.primary,
+                                                        RoundedCornerShape(8.dp)
+                                                    )
+                                                } else {
+                                                    modifier
+                                                }
+                                            },
+                                        shape = RoundedCornerShape(8.dp),
+                                        backgroundColor = if (uiState.selectedPatient?.id == patient.id)
+                                            MaterialTheme.colors.primary.copy(alpha = 0.1f)
+                                        else
+                                            MaterialTheme.colors.background
                                     ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(40.dp)
-                                                .clip(CircleShape)
-                                                .background(MaterialTheme.colors.primary),
-                                            contentAlignment = Alignment.Center
+                                        Row(
+                                            modifier = Modifier.padding(16.dp),
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Person,
-                                                contentDescription = "Patient",
-                                                tint = MaterialTheme.colors.onPrimary,
-                                                modifier = Modifier.size(24.dp)
-                                            )
-                                        }
-                                        Spacer(modifier = Modifier.padding(8.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = patient.name,
-                                                fontWeight = FontWeight.Medium
-                                            )
-                                            Text(
-                                                text = "${patient.age} years old • ${patient.gender}",
-                                                fontSize = 12.sp,
-                                                color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f)
-                                            )
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(40.dp)
+                                                    .clip(CircleShape)
+                                                    .background(MaterialTheme.colors.primary),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Person,
+                                                    contentDescription = "Patient",
+                                                    tint = MaterialTheme.colors.onPrimary,
+                                                    modifier = Modifier.size(24.dp)
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.padding(8.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = patient.name,
+                                                    fontWeight = FontWeight.Medium
+                                                )
+                                                Text(
+                                                    text = "${patient.age} years old • ${patient.gender}",
+                                                    fontSize = 12.sp,
+                                                    color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f)
+                                                )
+                                                if (patient.medicalHistory.isNotEmpty()) {
+                                                    Text(
+                                                        text = patient.medicalHistory,
+                                                        fontSize = 10.sp,
+                                                        color = MaterialTheme.colors.onSurface.copy(alpha = 0.5f),
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                            }
+
+                                            // Add menu for patient actions
+                                            var showMenu by remember { mutableStateOf(false) }
+
+                                            Box {
+                                                IconButton(
+                                                    onClick = { showMenu = true }
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.MoreVert,
+                                                        contentDescription = "Patient Options"
+                                                    )
+                                                }
+
+                                                DropdownMenu(
+                                                    expanded = showMenu,
+                                                    onDismissRequest = { showMenu = false }
+                                                ) {
+                                                    DropdownMenuItem(
+                                                        onClick = {
+                                                            showMenu = false
+                                                            patientToEdit = patient
+                                                            showEditPatientDialog = true
+                                                        }
+                                                    ) {
+                                                        Text("Edit",
+                                                            color = MaterialTheme.colors.primary)
+
+                                                    }
+                                                    DropdownMenuItem(
+                                                        onClick = {
+                                                            showMenu = false
+                                                            viewModel.deletePatient(patient)
+                                                        }
+                                                    ) {
+                                                        Text(
+                                                            text = "Delete",
+                                                            color = androidx.compose.material3.MaterialTheme.colorScheme.error
+                                                        )
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -513,8 +701,9 @@ fun DashboardScreen(
             }
 
             item {
-                Spacer(modifier = Modifier.height(80.dp)) // Space for FAB
+                Spacer(modifier = Modifier.height(80.dp))
             }
         }
     }
 }
+

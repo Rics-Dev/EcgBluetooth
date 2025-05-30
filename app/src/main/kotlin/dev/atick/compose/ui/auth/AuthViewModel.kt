@@ -4,6 +4,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
+import com.orhanobut.logger.Logger
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.atick.compose.auth.AppwriteAuthService
 import dev.atick.compose.ui.utils.Property
@@ -34,21 +35,23 @@ class AuthViewModel @Inject constructor(
     val authError: LiveData<Event<String>> get() = _authError
 
     init {
-        // Check for existing authentication session
         viewModelScope.launch {
             userPreferences.getUserId().collect { userId ->
-                if (userId.isNotEmpty()) {
+                if (userId.isNotEmpty() && userId != "-1") {
                     try {
+                        // Verify the session is still valid
                         val user = appwriteAuthService.getCurrentUser()
-                        if (user != null) {
+                        if (user != null && user.id == userId) {
+                            Logger.d("Valid session found for user: ${user.id}")
                             _authSuccess.postValue(Event(true))
                         } else {
-                            // Clear invalid user ID if no valid session exists
+                            Logger.w("Invalid session, clearing stored user ID")
                             userPreferences.saveUserId("")
                         }
                     } catch (e: Exception) {
-                        _authError.postValue(Event("Session expired: ${e.message}"))
+                        Logger.e("Session validation failed: ${e.message}")
                         userPreferences.saveUserId("")
+                        _authError.postValue(Event("Session expired, please login again"))
                     }
                 }
             }
@@ -65,6 +68,38 @@ class AuthViewModel @Inject constructor(
             }
         }
     }
+//    init {
+//        // Check for existing authentication session
+//        viewModelScope.launch {
+//            userPreferences.getUserId().collect { userId ->
+//                if (userId.isNotEmpty()) {
+//                    try {
+//                        val user = appwriteAuthService.getCurrentUser()
+//                        if (user != null) {
+//                            _authSuccess.postValue(Event(true))
+//                        } else {
+//                            // Clear invalid user ID if no valid session exists
+//                            userPreferences.saveUserId("")
+//                        }
+//                    } catch (e: Exception) {
+//                        _authError.postValue(Event("Session expired: ${e.message}"))
+//                        userPreferences.saveUserId("")
+//                    }
+//                }
+//            }
+//        }
+//
+//        // Listen for authentication errors
+//        viewModelScope.launch {
+//            appwriteAuthService.authError.collect { error ->
+//                if (error != null) {
+//                    _authError.postValue(Event(error.message ?: "Authentication failed"))
+//                    appwriteAuthService.clearError()
+//                    isAuthenticating.value = false
+//                }
+//            }
+//        }
+//    }
 
     fun toggleAuthMode() {
         isLoginMode.value = !isLoginMode.value
@@ -110,32 +145,88 @@ class AuthViewModel @Inject constructor(
     private fun login(email: String, password: String) {
         isAuthenticating.value = true
         viewModelScope.launch {
-            val success = appwriteAuthService.login(email, password)
-            if (success) {
-                val user = appwriteAuthService.getCurrentUser()
-                user?.let {
-                    userPreferences.saveUserId(it.id)
+            try {
+                val success = appwriteAuthService.login(email, password)
+                if (success) {
+                    val user = appwriteAuthService.getCurrentUser()
+                    if (user != null) {
+                        // Save the actual user ID from Appwrite
+                        userPreferences.saveUserId(user.id)
+                        Logger.d("User logged in successfully with ID: ${user.id}")
+                        _authSuccess.postValue(Event(true))
+                    } else {
+                        Logger.e("Login successful but failed to get user details")
+                        _authError.postValue(Event("Failed to get user information"))
+                    }
+                } else {
+                    Logger.e("Login failed")
                 }
-                _authSuccess.postValue(Event(true))
+            } catch (e: Exception) {
+                Logger.e("Login error: ${e.message}")
+                _authError.postValue(Event("Login failed: ${e.message}"))
+            } finally {
+                isAuthenticating.value = false
             }
-            isAuthenticating.value = false
         }
     }
+
+//    private fun login(email: String, password: String) {
+//        isAuthenticating.value = true
+//        viewModelScope.launch {
+//            val success = appwriteAuthService.login(email, password)
+//            if (success) {
+//                val user = appwriteAuthService.getCurrentUser()
+//                user?.let {
+//                    userPreferences.saveUserId(it.id)
+//                }
+//                _authSuccess.postValue(Event(true))
+//            }
+//            isAuthenticating.value = false
+//        }
+//    }
 
     private fun signUp(email: String, password: String, name: String) {
         isAuthenticating.value = true
         viewModelScope.launch {
-            val success = appwriteAuthService.createAccount(email, password, name)
-            if (success) {
-                val user = appwriteAuthService.getCurrentUser()
-                user?.let {
-                    userPreferences.saveUserId(it.id)
+            try {
+                val success = appwriteAuthService.createAccount(email, password, name)
+                if (success) {
+                    val user = appwriteAuthService.getCurrentUser()
+                    if (user != null) {
+                        // Save the actual user ID from Appwrite
+                        userPreferences.saveUserId(user.id)
+                        Logger.d("User registered successfully with ID: ${user.id}")
+                        _authSuccess.postValue(Event(true))
+                    } else {
+                        Logger.e("Registration successful but failed to get user details")
+                        _authError.postValue(Event("Failed to get user information"))
+                    }
+                } else {
+                    Logger.e("Registration failed")
                 }
-                _authSuccess.postValue(Event(true))
+            } catch (e: Exception) {
+                Logger.e("Registration error: ${e.message}")
+                _authError.postValue(Event("Registration failed: ${e.message}"))
+            } finally {
+                isAuthenticating.value = false
             }
-            isAuthenticating.value = false
         }
     }
+
+//    private fun signUp(email: String, password: String, name: String) {
+//        isAuthenticating.value = true
+//        viewModelScope.launch {
+//            val success = appwriteAuthService.createAccount(email, password, name)
+//            if (success) {
+//                val user = appwriteAuthService.getCurrentUser()
+//                user?.let {
+//                    userPreferences.saveUserId(it.id)
+//                }
+//                _authSuccess.postValue(Event(true))
+//            }
+//            isAuthenticating.value = false
+//        }
+//    }
 
     fun logout() {
         viewModelScope.launch {

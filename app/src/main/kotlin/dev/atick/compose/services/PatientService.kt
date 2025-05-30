@@ -30,9 +30,9 @@ class PatientService @Inject constructor(
     private val databases = Databases(client)
 
     // Database and Collection IDs
-    private val databaseId = "cardiac_zone_db"
-    private val patientsCollectionId = "patients"
-    private val ecgRecordsCollectionId = "ecg_records"
+    private val databaseId = "683a229500280acf9e5a"
+    private val patientsCollectionId = "683a22a8003d77374076"
+    private val ecgRecordsCollectionId = "683a29f2000da2001e81"
 
     private val _patients = MutableStateFlow<List<Patient>>(emptyList())
     val patients: StateFlow<List<Patient>> = _patients.asStateFlow()
@@ -43,6 +43,8 @@ class PatientService @Inject constructor(
     suspend fun createPatient(patient: Patient, doctorId: String): Patient? {
         return try {
             withContext(Dispatchers.IO) {
+                Logger.d("Creating patient: ${patient.name} for doctor: $doctorId")
+
                 val patientData = mapOf(
                     "name" to patient.name,
                     "age" to patient.age,
@@ -60,10 +62,22 @@ class PatientService @Inject constructor(
                     data = patientData
                 )
 
-                documentToPatient(document)
+                val createdPatient = documentToPatient(document)
+                Logger.d("Patient created successfully with ID: ${createdPatient.id}")
+
+                // Update local state
+                val currentPatients = _patients.value.toMutableList()
+                currentPatients.add(createdPatient)
+                _patients.value = currentPatients
+
+                createdPatient
             }
         } catch (e: AppwriteException) {
-            Logger.e("Failed to create patient: ${e.message}")
+            Logger.e("Appwrite error creating patient: ${e.message}")
+            _error.value = e
+            null
+        } catch (e: Exception) {
+            Logger.e("Unexpected error creating patient: ${e.message}")
             _error.value = e
             null
         }
@@ -72,6 +86,8 @@ class PatientService @Inject constructor(
     suspend fun getPatientsByDoctor(doctorId: String): List<Patient> {
         return try {
             withContext(Dispatchers.IO) {
+                Logger.d("Fetching patients for doctor: $doctorId")
+
                 val response = databases.listDocuments(
                     databaseId = databaseId,
                     collectionId = patientsCollectionId,
@@ -85,16 +101,21 @@ class PatientService @Inject constructor(
                     try {
                         documentToPatient(document)
                     } catch (e: Exception) {
-                        Logger.e("Failed to parse patient document: ${e.message}")
+                        Logger.e("Failed to parse patient document ${document.id}: ${e.message}")
                         null
                     }
                 }
 
+                Logger.d("Successfully fetched ${patients.size} patients from Appwrite")
                 _patients.value = patients
                 patients
             }
         } catch (e: AppwriteException) {
-            Logger.e("Failed to fetch patients: ${e.message}")
+            Logger.e("Appwrite error fetching patients: ${e.message}")
+            _error.value = e
+            emptyList()
+        } catch (e: Exception) {
+            Logger.e("Unexpected error fetching patients: ${e.message}")
             _error.value = e
             emptyList()
         }
@@ -103,6 +124,8 @@ class PatientService @Inject constructor(
     suspend fun updatePatient(patient: Patient): Patient? {
         return try {
             withContext(Dispatchers.IO) {
+                Logger.d("Updating patient: ${patient.id}")
+
                 val patientData = mapOf(
                     "name" to patient.name,
                     "age" to patient.age,
@@ -118,10 +141,25 @@ class PatientService @Inject constructor(
                     data = patientData
                 )
 
-                documentToPatient(document)
+                val updatedPatient = documentToPatient(document)
+                Logger.d("Patient updated successfully: ${updatedPatient.id}")
+
+                // Update local state
+                val currentPatients = _patients.value.toMutableList()
+                val index = currentPatients.indexOfFirst { it.id == patient.id }
+                if (index != -1) {
+                    currentPatients[index] = updatedPatient
+                    _patients.value = currentPatients
+                }
+
+                updatedPatient
             }
         } catch (e: AppwriteException) {
-            Logger.e("Failed to update patient: ${e.message}")
+            Logger.e("Appwrite error updating patient: ${e.message}")
+            _error.value = e
+            null
+        } catch (e: Exception) {
+            Logger.e("Unexpected error updating patient: ${e.message}")
             _error.value = e
             null
         }
@@ -130,6 +168,8 @@ class PatientService @Inject constructor(
     suspend fun deletePatient(patientId: String): Boolean {
         return try {
             withContext(Dispatchers.IO) {
+                Logger.d("Deleting patient: $patientId")
+
                 databases.deleteDocument(
                     databaseId = databaseId,
                     collectionId = patientsCollectionId,
@@ -137,13 +177,39 @@ class PatientService @Inject constructor(
                 )
 
                 // Remove from local list
-                _patients.value = _patients.value.filter { it.id != patientId }
+                val currentPatients = _patients.value.toMutableList()
+                currentPatients.removeAll { it.id == patientId }
+                _patients.value = currentPatients
+
+                Logger.d("Patient deleted successfully: $patientId")
                 true
             }
         } catch (e: AppwriteException) {
-            Logger.e("Failed to delete patient: ${e.message}")
+            Logger.e("Appwrite error deleting patient: ${e.message}")
             _error.value = e
             false
+        } catch (e: Exception) {
+            Logger.e("Unexpected error deleting patient: ${e.message}")
+            _error.value = e
+            false
+        }
+    }
+
+    // Enhanced document parsing with better error handling
+    private fun documentToPatient(document: Document<Map<String, Any>>): Patient {
+        return try {
+            val data = document.data
+            Patient(
+                id = document.id,
+                name = data["name"] as? String ?: throw IllegalArgumentException("Missing name"),
+                age = (data["age"] as? Number)?.toInt() ?: 0,
+                gender = data["gender"] as? String ?: "",
+                medicalHistory = data["medicalHistory"] as? String ?: "",
+                lastRecorded = (data["lastRecorded"] as? Number)?.toLong() ?: 0L
+            )
+        } catch (e: Exception) {
+            Logger.e("Error parsing patient document: ${e.message}")
+            throw e
         }
     }
 
@@ -225,17 +291,6 @@ class PatientService @Inject constructor(
         }
     }
 
-    private fun documentToPatient(document: Document<Map<String, Any>>): Patient {
-        val data = document.data
-        return Patient(
-            id = document.id,
-            name = data["name"] as? String ?: "",
-            age = (data["age"] as? Number)?.toInt() ?: 0,
-            gender = data["gender"] as? String ?: "",
-            medicalHistory = data["medicalHistory"] as? String ?: "",
-            lastRecorded = (data["lastRecorded"] as? Number)?.toLong() ?: 0L
-        )
-    }
 
     private fun documentToEcgRecord(document: Document<Map<String, Any>>): EcgRecord {
         val data = document.data
