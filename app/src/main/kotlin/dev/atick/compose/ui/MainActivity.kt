@@ -1,14 +1,15 @@
-
 package dev.atick.compose.ui
 
 import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import com.orhanobut.logger.Logger
 import dagger.hilt.android.AndroidEntryPoint
 import dev.atick.compose.R
-import dev.atick.core.utils.extensions.checkForPermissions
 import dev.atick.movesense.utils.BleUtils
 import javax.inject.Inject
 
@@ -20,39 +21,45 @@ class MainActivity : AppCompatActivity() {
 
     private val permissions = mutableListOf<String>()
 
+    private val permissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val allGranted = permissions.all { it.value }
+        if (allGranted) {
+            Logger.i("ALL PERMISSIONS GRANTED")
+            onAllPermissionsGranted()
+        } else {
+            Logger.w("Some permissions were denied")
+            handlePermissionsDenied(permissions)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setTheme(R.style.Theme_JetpackComposeStarter)
         setContentView(R.layout.activity_main)
 
-        // Configure required permissions based on Android version
         setupPermissions()
 
-        // Initialize BLE utils first, then check permissions
         initializeBluetooth()
     }
 
     private fun setupPermissions() {
-        // Notification permission for Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
 
-        // Bluetooth permissions based on Android version
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            // Android 12+ requires new Bluetooth permissions
             permissions.add(Manifest.permission.BLUETOOTH_SCAN)
             permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
             permissions.add(Manifest.permission.BLUETOOTH_ADVERTISE)
         } else {
-            // Older Android versions require location permissions for Bluetooth
             permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
             permissions.add(Manifest.permission.ACCESS_COARSE_LOCATION)
             permissions.add(Manifest.permission.BLUETOOTH)
             permissions.add(Manifest.permission.BLUETOOTH_ADMIN)
         }
 
-        // File access permissions
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.READ_MEDIA_AUDIO)
         } else {
@@ -66,22 +73,44 @@ class MainActivity : AppCompatActivity() {
     private fun initializeBluetooth() {
         bleUtils.initialize(this) {
             Logger.i("BLUETOOTH IS READY")
-            // Now check for permissions after BLE utils is initialized
-            checkForPermissions(permissions) {
-                Logger.i("ALL PERMISSIONS GRANTED")
-                // Additional setup can go here if needed
-            }
+            checkAndRequestPermissions()
         }
+    }
+
+    private fun checkAndRequestPermissions() {
+        val missingPermissions = permissions.filter { permission ->
+            ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED
+        }
+
+        if (missingPermissions.isEmpty()) {
+            Logger.i("ALL PERMISSIONS ALREADY GRANTED")
+            onAllPermissionsGranted()
+        } else {
+            Logger.i("Requesting ${missingPermissions.size} permissions")
+            permissionLauncher.launch(missingPermissions.toTypedArray())
+        }
+    }
+
+    private fun onAllPermissionsGranted() {
+        // Additional setup can go here if needed
+        Logger.i("App is ready with all permissions")
+    }
+
+    private fun handlePermissionsDenied(permissions: Map<String, Boolean>) {
+        val deniedPermissions = permissions.filter { !it.value }.keys
+        Logger.w("Denied permissions: $deniedPermissions")
+        Logger.i("Continuing with limited functionality")
     }
 
     override fun onResume() {
         super.onResume()
-        bleUtils.setupBluetooth(this)
+        if (::bleUtils.isInitialized) {
+            bleUtils.setupBluetooth(this)
+        }
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        // Clean up any resources if needed
     }
 }
 
