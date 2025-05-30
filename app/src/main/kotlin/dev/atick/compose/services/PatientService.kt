@@ -217,12 +217,13 @@ class PatientService @Inject constructor(
         patientId: String,
         ecgData: List<Int>,
         heartRate: Float,
-        recordingDuration: Long
+        recordingDuration: Long,
+        isAbnormal: Boolean = false
     ): String? {
         return try {
             withContext(Dispatchers.IO) {
                 Logger.d("Saving ECG record for patient: $patientId")
-                Logger.d("ECG data size: ${ecgData.size}, Heart rate: $heartRate, Duration: $recordingDuration")
+                Logger.d("ECG data size: ${ecgData.size}, Heart rate: $heartRate, Duration: $recordingDuration, Abnormal: $isAbnormal")
 
                 val recordData = mapOf(
                     "patientId" to patientId,
@@ -230,7 +231,9 @@ class PatientService @Inject constructor(
                     "heartRate" to heartRate,
                     "recordingDuration" to recordingDuration,
                     "timestamp" to System.currentTimeMillis(),
-                    "isAbnormal" to false // This would be determined by ML analysis
+                    "isAbnormal" to isAbnormal,
+                    "sampleRate" to (ecgData.size.toFloat() / (recordingDuration / 1000.0f)),
+                    "dataQuality" to analyzeDataQuality(ecgData)
                 )
 
                 Logger.d("Creating document in Appwrite...")
@@ -262,20 +265,65 @@ class PatientService @Inject constructor(
         }
     }
 
+    private fun analyzeDataQuality(ecgData: List<Int>): String {
+        return try {
+            val mean = ecgData.average()
+            val variance = ecgData.map { (it - mean) * (it - mean) }.average()
+            val stdDev = kotlin.math.sqrt(variance)
+
+            when {
+                stdDev < 5 -> "Poor" // Very low variance, likely flat signal
+                stdDev > 200 -> "Poor" // Very high variance, likely noisy
+                ecgData.any { kotlin.math.abs(it) > 1000 } -> "Poor" // Extreme values
+                else -> "Good"
+            }
+        } catch (e: Exception) {
+            "Unknown"
+        }
+    }
+
+    suspend fun deleteEcgRecord(recordId: String): Boolean {
+        return try {
+            withContext(Dispatchers.IO) {
+                Logger.d("Deleting ECG record: $recordId")
+
+                databases.deleteDocument(
+                    databaseId = databaseId,
+                    collectionId = ecgRecordsCollectionId,
+                    documentId = recordId
+                )
+
+                Logger.d("ECG record deleted successfully: $recordId")
+                true
+            }
+        } catch (e: AppwriteException) {
+            Logger.e("Appwrite error deleting ECG record: ${e.message}")
+            _error.value = e
+            false
+        } catch (e: Exception) {
+            Logger.e("Unexpected error deleting ECG record: ${e.message}")
+            _error.value = e
+            false
+        }
+    }
+
+    // Enhanced getEcgRecords method with better error handling
     suspend fun getEcgRecords(patientId: String): List<EcgRecord> {
         return try {
             withContext(Dispatchers.IO) {
+                Logger.d("Fetching ECG records for patient: $patientId")
+
                 val response = databases.listDocuments(
                     databaseId = databaseId,
                     collectionId = ecgRecordsCollectionId,
                     queries = listOf(
                         io.appwrite.Query.equal("patientId", patientId),
                         io.appwrite.Query.orderDesc("timestamp"),
-                        io.appwrite.Query.limit(50) // Limit to recent 50 records
+                        io.appwrite.Query.limit(100) // Increased limit
                     )
                 )
 
-                response.documents.mapNotNull { document ->
+                val records = response.documents.mapNotNull { document ->
                     try {
                         documentToEcgRecord(document)
                     } catch (e: Exception) {
@@ -283,11 +331,43 @@ class PatientService @Inject constructor(
                         null
                     }
                 }
+
+                Logger.d("Successfully fetched ${records.size} ECG records")
+                records
             }
         } catch (e: AppwriteException) {
             Logger.e("Failed to fetch ECG records: ${e.message}")
             _error.value = e
             emptyList()
+        } catch (e: Exception) {
+            Logger.e("Unexpected error fetching ECG records: ${e.message}")
+            _error.value = e
+            emptyList()
+        }
+    }
+
+    // Enhanced documentToEcgRecord with better error handling
+    private fun documentToEcgRecord(document: Document<Map<String, Any>>): EcgRecord {
+        return try {
+            val data = document.data
+            EcgRecord(
+                id = document.id,
+                patientId = data["patientId"] as? String ?: "",
+                ecgData = (data["ecgData"] as? List<*>)?.mapNotNull {
+                    when (it) {
+                        is Number -> it.toInt()
+                        is String -> it.toIntOrNull()
+                        else -> null
+                    }
+                } ?: emptyList(),
+                heartRate = (data["heartRate"] as? Number)?.toFloat() ?: 0f,
+                recordingDuration = (data["recordingDuration"] as? Number)?.toLong() ?: 0L,
+                timestamp = (data["timestamp"] as? Number)?.toLong() ?: 0L,
+                isAbnormal = data["isAbnormal"] as? Boolean ?: false
+            )
+        } catch (e: Exception) {
+            Logger.e("Error parsing ECG record document: ${e.message}")
+            throw e
         }
     }
 
@@ -304,19 +384,6 @@ class PatientService @Inject constructor(
         }
     }
 
-
-    private fun documentToEcgRecord(document: Document<Map<String, Any>>): EcgRecord {
-        val data = document.data
-        return EcgRecord(
-            id = document.id,
-            patientId = data["patientId"] as? String ?: "",
-            ecgData = (data["ecgData"] as? List<*>)?.mapNotNull { (it as? Number)?.toInt() } ?: emptyList(),
-            heartRate = (data["heartRate"] as? Number)?.toFloat() ?: 0f,
-            recordingDuration = (data["recordingDuration"] as? Number)?.toLong() ?: 0L,
-            timestamp = (data["timestamp"] as? Number)?.toLong() ?: 0L,
-            isAbnormal = data["isAbnormal"] as? Boolean ?: false
-        )
-    }
 
     fun clearError() {
         _error.value = null

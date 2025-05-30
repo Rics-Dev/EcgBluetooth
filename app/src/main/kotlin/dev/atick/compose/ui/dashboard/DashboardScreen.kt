@@ -68,6 +68,7 @@ import dev.atick.compose.ui.common.components.TopBar
 import dev.atick.compose.ui.dashboard.components.AbnormalEcgHeaderCard
 import dev.atick.compose.ui.dashboard.components.DoctorInfoCard
 import dev.atick.compose.ui.dashboard.components.EcgCard
+import dev.atick.compose.ui.dashboard.components.EcgRecordsCard
 import dev.atick.compose.ui.dashboard.components.HeartRateCard
 import dev.atick.compose.ui.dashboard.components.PatientAddDialog
 import dev.atick.compose.ui.dashboard.components.PatientEditDialog
@@ -465,6 +466,21 @@ fun DashboardScreen(
                             }
                         }
                     }
+                }
+
+                item {
+                    EcgRecordsCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        ecgRecords = uiState.patientEcgRecords,
+                        isLoading = uiState.isLoadingRecords,
+                        onDeleteRecord = { recordId ->
+                            viewModel.deleteEcgRecord(recordId)
+                        },
+                        onViewRecord = { record ->
+                            // Convert EcgRecord to EcgPlotData and show in a dialog or new screen
+                            viewModel.viewEcgRecord(record)
+                        }
+                    )
                 }
             }
 

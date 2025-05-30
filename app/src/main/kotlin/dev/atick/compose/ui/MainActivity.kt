@@ -20,6 +20,7 @@ class MainActivity : AppCompatActivity() {
     lateinit var bleUtils: BleUtils
 
     private val permissions = mutableListOf<String>()
+    private var permissionsInitialized = false
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -40,7 +41,6 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         setupPermissions()
-
         initializeBluetooth()
     }
 
@@ -78,6 +78,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkAndRequestPermissions() {
+        if (permissionsInitialized) {
+            Logger.d("Permissions already checked, skipping")
+            return
+        }
+
         val missingPermissions = permissions.filter { permission ->
             ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED
         }
@@ -89,10 +94,11 @@ class MainActivity : AppCompatActivity() {
             Logger.i("Requesting ${missingPermissions.size} permissions")
             permissionLauncher.launch(missingPermissions.toTypedArray())
         }
+
+        permissionsInitialized = true
     }
 
     private fun onAllPermissionsGranted() {
-        // Additional setup can go here if needed
         Logger.i("App is ready with all permissions")
     }
 
