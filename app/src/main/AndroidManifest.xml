@@ -10,9 +10,6 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
 
-    <!-- Audio recording permission -->
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
-
     <!-- Notification permissions -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
@@ -52,9 +49,6 @@
     <uses-feature
         android:name="android.hardware.location"
         android:required="false" />
-    <uses-feature
-        android:name="android.hardware.microphone"
-        android:required="true" />
 
     <application
         android:name=".App"

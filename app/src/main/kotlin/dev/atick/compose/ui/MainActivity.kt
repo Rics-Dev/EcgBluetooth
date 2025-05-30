@@ -1,3 +1,4 @@
+
 package dev.atick.compose.ui
 
 import android.Manifest
@@ -27,10 +28,8 @@ class MainActivity : AppCompatActivity() {
         // Configure required permissions based on Android version
         setupPermissions()
 
-        checkForPermissions(permissions) {
-            Logger.i("ALL PERMISSIONS GRANTED")
-            initializeBluetooth()
-        }
+        // Initialize BLE utils first, then check permissions
+        initializeBluetooth()
     }
 
     private fun setupPermissions() {
@@ -38,9 +37,6 @@ class MainActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
-
-        // Audio recording permission
-        permissions.add(Manifest.permission.RECORD_AUDIO)
 
         // Bluetooth permissions based on Android version
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -61,13 +57,20 @@ class MainActivity : AppCompatActivity() {
             permissions.add(Manifest.permission.READ_MEDIA_AUDIO)
         } else {
             permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
-            permissions.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.Q) {
+                permissions.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            }
         }
     }
 
     private fun initializeBluetooth() {
         bleUtils.initialize(this) {
             Logger.i("BLUETOOTH IS READY")
+            // Now check for permissions after BLE utils is initialized
+            checkForPermissions(permissions) {
+                Logger.i("ALL PERMISSIONS GRANTED")
+                // Additional setup can go here if needed
+            }
         }
     }
 
@@ -81,6 +84,7 @@ class MainActivity : AppCompatActivity() {
         // Clean up any resources if needed
     }
 }
+
 //package dev.atick.compose.ui
 //
 //import android.Manifest
